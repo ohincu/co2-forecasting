@@ -12,9 +12,14 @@ The final model chosen was ARIMA(1, 1, 1)(2, 1, 1)[12].
 ## Requirements
 These libraries are needed:
 * **Wrangling and visualizations** - tidyverse, lubridate
+* **Calculations** - zoo
 * **Time series analysis and forecasting** - forecast
 
 ## Key Insights
+
+The CO2 concentration is increasing rapidly, reaching over 400 ppm in the 21st century.
+
+![](img/co2_concentration.png)
 
 There is a clear increasing trend and seasonal variation. The CO2 concentration increases up to May, then drops and increases again in October. According to [NOAA](https://www.climate.gov/news-features/understanding-climate/climate-change-atmospheric-carbon-dioxide), this is driven by Northern Hemisphere summer vegetation growth, which reduces atmospheric CO2, and winter decay, which increases it.
 
