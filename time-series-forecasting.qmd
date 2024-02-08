@@ -18,21 +18,19 @@ options(warn = -1, repr.plot.width = 10, repr.plot.height = 6, repr.plot.res = 1
 Adding a standard theme
 
 ```{r}
+# Adding Lato font
+library(showtext)
+font_add_google("lato", "lato.ttf")
+showtext_auto()
+
 my_theme <- function(text_color) {
   theme_bw() +
-    theme(text = element_text(size = 10, family = "Lato", face = "bold", color = text_color),
+    theme(text = element_text(size = 12, family = "lato", face = "bold", color = text_color),
           panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
           plot.title = element_text(hjust = 0.5)
     )
 }
-```
-
-```{r}
-#library(extrafont)
-#font_import()
-#loadfonts(device = "win")
-#windowsFonts()
 ```
 
 # Getting data
@@ -84,23 +82,13 @@ ggplot(data_sel, aes(date, co2_average)) +
   scale_x_date(date_labels = "%Y-%m", date_breaks = "10 year") +
   xlab("Year-Month") +
   ylab("CO2 Concentration (ppm)") +
+  ggtitle("CO2 Concentration Progress In Time") +
   my_theme(text_color = "black")
 ```
 
 -   The CO2 concentration in ppm follows an approximately exponential trend lately. Ppm stands for "parts per million of carbon dioxide" and represents the number of CO2 molecules present in the atmosphere for every one million molecules
 
 -   [🛈](https://emojipedia.org/circled-information-source) The baseline pre-industrial atmospheric CO2 concentration is considered to be around 280 ppm and it was like this for [10000 years](https://www.climate.gov/media/14605) up to the industrial revolution. Currently it's way over 400.
-
-```{r}
-ggplot(data_sel, aes(date, co2_average)) +
-  filter(year >= '2010') +
-  geom_line(color = 'darkorange') +
-  scale_x_date(date_labels = "%Y-%m") +
-  facet_wrap(year ~, scales = "free") +
-  xlab("Year-Month") +
-  ylab("CO2 Concentration (ppm)") +
-  my_theme(text_color = "black")
-```
 
 Let's check the growth rates.
 
@@ -118,6 +106,8 @@ annual_growth_rate %>%
   ggplot(aes(year, avg_ppm)) +
   geom_line(color = 'darkorange') + 
   geom_hline(yintercept = 2, color = 'grey') +
+  xlab("Year") +
+  ylab("Average Yearly CO2 Change (ppm) in %") +
   my_theme(text_color = "black")
 ```
 
@@ -126,8 +116,15 @@ It's increasing, with about 2.5ppm increase in 2023. This not very reliable thou
 I want to also look closer, and see how the CO2 concentration changes through the year.
 
 ```{r}
+# Creating a tsibble object for plotting and modeling
+co2_train <- ts(data_train$co2_average, start = c(1958,3), frequency = 12) # 12 as we have monthly data
+co2_test <- ts(data_test$co2_average, start = c(2021,1), frequency = 12)
+
 co2_train %>% 
   ggseasonplot() +
+  ggtitle("Seasonal Plot By Year") +
+  xlab("Month") +
+  ylab("CO2 Concentration (ppm)") +
   my_theme(text_color = "black") +
   theme(legend.position = "none")
 ```
@@ -138,11 +135,6 @@ co2_train %>%
 
 ## Time Series Analysis
 
-```{r}
-# Creating a tsibble object for plotting and modeling
-co2_train <- ts(data_train$co2_average, start = c(1958,3), frequency = 12) # 12 as we have monthly data
-```
-
 Before applying the ARIMA model, I need to check 2 things: stationarity and correlations between time lags.
 
 ```{r}
@@ -152,16 +144,6 @@ co2_train %>% ggtsdisplay(lag.max = 90)
 -   The data is clearly not stationary having an increasing trend and seasonality.
 
 -   The significant lag at 12 potentially suggests annual seasonality and 25 might hide some longer-term seasonality.
-
-```{r}
-diff_co2 <- diff(diff(diff(co2_train, differences = 1), lag = 12), lag = 12)
-
-# Apply Ljung-Box test
-ljung_box_result <- Box.test(diff_co2, lag = 12, type = "Ljung-Box")
-
-# View the test results
-print(ljung_box_result)
-```
 
 ```{r}
 co2_train %>% diff() %>% diff(lag = 12) %>% ggtsdisplay(lag.max = 90)
@@ -175,9 +157,9 @@ That looks stationary.
 
 -   A significant lag at 1 in the PACF suggests a MA(1).
 
--   And the significants lags in PACF might indicate a MA(2) in the seasonal part.
+-   And the significants lags in PACF might indicate a MA(2) or MA(3) in the seasonal part.
 
--   And of course the 12 lag, 24,, 36 and so on, might indicate the seasonal part.
+-   And of course the 12 lag, 24, 36 and so on, might indicate the seasonal part.
 
 I'll use auto.arima first, as it's usually good at detecting these patterns.
 
@@ -208,10 +190,10 @@ I chose a seasonal ARIMA model because it works well with time series data, whic
 
 ARIMA is generally used to forecast a couple of months ahead, not more. After this, there is too much uncertainty that cannot be covered by the model.
 
-Nevertheless, I will forecast the next 36 years up to 2050 to check this assumption.
+Nevertheless, I will forecast the next 30 years to check this assumption.
 
 ```{r}
-arima_forecast <- Co2_train %>%
+arima_forecast <- co2_train %>%
   Arima(order = c(1,1,1), seasonal = list(order = c(2,1,2),period = 12),
         lambda = "auto"
   ) %>%
@@ -219,8 +201,9 @@ arima_forecast <- Co2_train %>%
 
 arima_forecast %>%
   autoplot() +
-  ylab("Co2 Concentration in PPM") + xlab("Year") +
-  autolayer(Co2_test)
+  xlab("Year") +
+  ylab("Co2 Concentration in PPM") +
+  autolayer(co2_test)
 ```
 
 -   ARIMA seems to drop its CO2 concentration growth rates in time. But I doubt that would be our case.
@@ -234,7 +217,10 @@ df_arima_forecast %>%
   mutate(monthly_change = Point.Forecast - lag(Point.Forecast, n = 12)) %>% 
   summarise(rolling_avg = rollmean(monthly_change, na.rm = TRUE, k = 12)) %>% 
   ggplot(aes(rolling_avg)) +
-  geom_histogram()
+  geom_histogram() +
+  xlab("Average Monthly Change in ppm") +
+  ylab("# Months")
 ```
 
+\
 Here, it's the rolling average for each year as a distribution and it's mostly constant.
